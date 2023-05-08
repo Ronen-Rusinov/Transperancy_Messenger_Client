@@ -24,22 +24,22 @@ int main() {
     boost::asio::ssl::stream<boost::asio::ip::tcp::socket> socket(io_context, ssl_context);
     boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), 8443);
     socket.lowest_layer().connect(endpoint);
-
+    
 
     // Perform the SSL handshake
     socket.handshake(boost::asio::ssl::stream_base::handshake_type::client);
 
     std::cout << "SSL handshake completed successfully!" << std::endl;
-
+    //std::cin;
     // Do other things with the SSL socket...
-    /*
+     
     while (1)
     {
         std::string command;
         std::cin >> command;
-        socket.write_some(command);
+        boost::asio::write(socket,boost::asio::buffer(command));
     }
-    */
+    
     return 0;
 }
 
