@@ -5,17 +5,55 @@
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/bind.hpp>
-#include <queue>
-
 
 
 using namespace std;
 using boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
 
+void do_read(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, std::array<char, 1024>& read_buffer )
+{
+
+    socket.async_read_some(boost::asio::buffer(read_buffer),
+        [&socket,&read_buffer](const boost::system::error_code& error, size_t length) {
+            if (!error) {
+                std::string recieved = std::string(read_buffer.data(), length);
+                std::cout << "Received: " << recieved << std::endl;
+                do_read(socket,read_buffer);    
+            }
+        }
+    );
+
+}
+
+void do_write(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, std::array<char, 1024>& write_buffer)
+{
+    socket.write_some(boost::asio::buffer(write_buffer)
+
+
+        /*[write_buffer](const boost::system::error_code& error, size_t length) {
+            if (!error) {
+                cout << "Successfully written: " << write_buffer.data() << endl;
+            }
+            else
+            {
+                cout << "Failed to write: " << write_buffer.data() << endl;
+
+            }
+
+        }
+        */
+
+    );
+}
+
+
 int main() {
     boost::asio::io_context io_context;
     boost::asio::ssl::context ssl_context(boost::asio::ssl::context::tlsv12_client);
+
+    std::array<char, 1024> read_buffer;
+    std::array<char, 1024> write_buffer;
 
     // Load the self-signed certificate into the SSL context
     ssl_context.load_verify_file("SSL/server_certificate.crt");
@@ -32,24 +70,32 @@ int main() {
     std::cout << "SSL handshake completed successfully!" << std::endl;
     //std::cin;
     // Do other things with the SSL socket...
-     
+    
+    //do_read(socket,read_buffer);
+    
+    io_context.run();
     while (1)
     {
-        std::string command;
-        std::cin >> command;
-        boost::asio::write(socket,boost::asio::buffer(command));
+        std::array<char, 1024> myArray;
+        std::cout << "Enter a string: ";
+
+        // Read input from console
+        std::string input;
+        std::getline(std::cin, input);
+
+        // Copy input string to array
+        std::strncpy(myArray.data(), input.c_str(), myArray.size());
+
+        std::cout << input << endl;
+
+        do_write(socket, myArray);
     }
     
     return 0;
 }
 
+
+
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
 // Debug program: F5 or Debug > Start Debugging menu
 
-// Tips for Getting Started: 
-//   1. Use the Solution Explorer window to add/manage files
-//   2. Use the Team Explorer window to connect to source control
-//   3. Use the Output window to see build output and other messages
-//   4. Use the Error List window to view errors
-//   5. Go to Project > Add New Item to create new code files, or Project > Add Existing Item to add existing code files to the project
-//   6. In the future, to open this project again, go to File > Open > Project and select the .sln file
