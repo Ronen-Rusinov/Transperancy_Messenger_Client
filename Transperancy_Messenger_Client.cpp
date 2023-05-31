@@ -12,7 +12,9 @@
 #include <cryptopp/base64.h>
 #include <cryptopp/hex.h>
 //GUI
+#include <wx/wx.h>
 
+//#include <gtk/gtk.h>
 
 namespace fs = boost::filesystem;
 using namespace std;
@@ -24,7 +26,7 @@ void generateKeyPair(const std::string& privateKeyPath, const std::string& publi
     CryptoPP::AutoSeededRandomPool rng;
 
     CryptoPP::RSA::PrivateKey privateKey;
-    privateKey.GenerateRandomWithKeySize(rng, 2048);
+    privateKey.GenerateRandomWithKeySize(rng, 1024);
 
     CryptoPP::RSA::PublicKey publicKey(privateKey);
 
@@ -64,16 +66,19 @@ void loadKeyPair(const std::string& privateKeyPath, const std::string& publicKey
 
 void do_read(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, std::array<char, 1024>& read_buffer )
 {
-
+    cout << "ASYNC_READ INITIATED"<<endl;
     socket.async_read_some(boost::asio::buffer(read_buffer),
         [&socket,&read_buffer](const boost::system::error_code& error, size_t length) {
             if (!error) {
+
                 std::string recieved = std::string(read_buffer.data(), length);
                 std::cout << "Received: " << recieved << std::endl;
                 do_read(socket,read_buffer);    
             }
         }
+
     );
+    cout << "ASYNC_READ RETURNED" << endl;
 
 }
 
@@ -157,9 +162,10 @@ int main() {
     
     //do_read(socket,read_buffer);
     
-    io_context.run();
+    do_read(socket,read_buffer);
     while (1)
     {
+        cout << "LOOP" << endl;
         std::array<char, 1024> myArray;
         std::cout << "Enter a string: ";
 
@@ -171,7 +177,7 @@ int main() {
         std::strncpy(myArray.data(), input.c_str(), myArray.size());
 
         std::cout << input << endl;
-
+        
         do_write(socket, myArray);
         io_context.run();
     }
