@@ -9,8 +9,12 @@
 #include <cryptopp/osrng.h>
 #include <cryptopp/files.h>
 #include <cryptopp/rsa.h>
+#include <cryptopp/aes.h>
+#include <cryptopp/modes.h>
+#include <cryptopp/filters.h>
 #include <cryptopp/base64.h>
 #include <cryptopp/hex.h>
+#include <queue>
 //GUI
 #include <wx/wx.h>
 
@@ -20,6 +24,79 @@ namespace fs = boost::filesystem;
 using namespace std;
 using boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
+using namespace CryptoPP;
+
+std::string encryptAESKeyWithPublicKey(const std::string& publicKeyString, const std::string& aesKey)
+{
+    try
+    {
+        // Load the public key from a string
+        CryptoPP::RSA::PublicKey publicKey;
+        StringSource publicKeySource(publicKeyString, true);
+        publicKey.Load(publicKeySource);
+
+        // Convert the AES key from string to byte array
+        byte aesKeyArray[AES::DEFAULT_KEYLENGTH];
+        memcpy(aesKeyArray, aesKey.data(), AES::DEFAULT_KEYLENGTH);
+
+        // Encrypt the AES key using the public key
+        RSAES_OAEP_SHA_Encryptor encryptor(publicKey);
+        size_t ciphertextLength = encryptor.CiphertextLength(AES::DEFAULT_KEYLENGTH);
+        SecByteBlock encryptedKey(ciphertextLength);
+        AutoSeededRandomPool prng;
+        encryptor.Encrypt(prng, aesKeyArray, AES::DEFAULT_KEYLENGTH, encryptedKey);
+
+        // Convert the encrypted key to hexadecimal format
+        std::string encryptedKeyHex;
+        StringSource(encryptedKey, encryptedKey.size(), true,
+            new HexEncoder(new StringSink(encryptedKeyHex)));
+
+        return encryptedKeyHex;
+    }
+    catch (const Exception& ex)
+    {
+        std::cerr << "Crypto++ library exception: " << ex.what() << std::endl;
+        return "";
+    }
+}
+
+
+std::string decryptAESKeyWithPrivateKey(const std::string& privateKeyString, const std::string& encryptedAESKeyHex)
+{
+    try
+    {
+        // Load the private key from a string
+        CryptoPP::RSA::PrivateKey privateKey;
+        StringSource privateKeySource(privateKeyString, true);
+        privateKey.Load(privateKeySource);
+
+        // Convert the encrypted key from hexadecimal to byte array
+        std::string encryptedKey;
+        StringSource(encryptedAESKeyHex, true,
+            new HexDecoder(new StringSink(encryptedKey)));
+
+        // Decrypt the AES key using the private key
+        RSAES_OAEP_SHA_Decryptor decryptor(privateKey);
+        size_t decryptedLength = decryptor.FixedCiphertextLength();
+        SecByteBlock decryptedKey(decryptedLength);
+        AutoSeededRandomPool prng;
+        ArraySource as(reinterpret_cast<const byte*>(encryptedKey.data()), encryptedKey.size(), true);
+        as.Attach(new PK_DecryptorFilter(prng, decryptor,
+            new ArraySink(decryptedKey, decryptedLength)));
+        as.PumpAll();
+
+        // Convert the decrypted key to string
+        std::string decryptedKeyString(reinterpret_cast<const char*>(decryptedKey.data()), decryptedLength);
+
+        return decryptedKeyString;
+    }
+    catch (const Exception& ex)
+    {
+        std::cerr << "Crypto++ library exception: " << ex.what() << std::endl;
+        return "";
+    }
+}
+
 
 void generateKeyPair(const std::string& privateKeyPath, const std::string& publicKeyPath)
 {
@@ -66,7 +143,6 @@ void loadKeyPair(const std::string& privateKeyPath, const std::string& publicKey
 
 void do_read(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, std::array<char, 1024>& read_buffer )
 {
-    cout << "ASYNC_READ INITIATED"<<endl;
     socket.async_read_some(boost::asio::buffer(read_buffer),
         [&socket,&read_buffer](const boost::system::error_code& error, size_t length) {
             if (!error) {
@@ -78,7 +154,6 @@ void do_read(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, std
         }
 
     );
-    cout << "ASYNC_READ RETURNED" << endl;
 
 }
 
@@ -103,6 +178,44 @@ void do_write(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, st
     );
 }
 
+void console_adaptor(queue<string> &que,mutex &m)
+{
+    while (1)
+    {
+        std::array<char, 1024> myArray;
+        std::cout << "Enter a string: ";
+
+        // Read input from console
+        std::string input;
+        std::getline(std::cin, input);
+        m.lock();
+        que.push(input);
+        cout << que.size() << endl;
+        m.unlock();
+
+    }
+
+
+}
+
+void Clear_Queue(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket,queue<string>& que, boost::asio::io_context& io_context,mutex &m)
+{
+
+    m.lock();
+
+    while(!que.empty())
+    {
+        std::array<char, 1024> myArray{}; // Destination array
+        string myString = que.front() ;
+        que.pop();
+        std::copy(myString.begin(), myString.end(), myArray.begin());
+        do_write(socket,myArray);
+    }
+    m.unlock();
+
+    io_context.post([&socket, &que, &io_context, &m]() {Clear_Queue(socket,que,io_context,m); });
+
+}
 
 int main() {
     //Key pair protocol
@@ -162,28 +275,19 @@ int main() {
     
     //do_read(socket,read_buffer);
     
-    do_read(socket,read_buffer);
-    while (1)
-    {
-        cout << "LOOP" << endl;
-        std::array<char, 1024> myArray;
-        std::cout << "Enter a string: ";
-
-        // Read input from console
-        std::string input;
-        std::getline(std::cin, input);
-
-        // Copy input string to array
-        std::strncpy(myArray.data(), input.c_str(), myArray.size());
-
-        std::cout << input << endl;
-        
-        do_write(socket, myArray);
-        io_context.run();
-    }
+    //do_read(socket,read_buffer);
+    queue<string> consoleQueue;
+    mutex m;
+    std::array<char, 1024> myArray2;
+    Clear_Queue(socket, consoleQueue, io_context, m);
+    do_read(socket,myArray2);
+    std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
+    io_context.run();
     
     return 0;
 }
+
+
 
 
 
