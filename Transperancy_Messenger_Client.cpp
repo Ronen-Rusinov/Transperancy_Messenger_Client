@@ -237,6 +237,17 @@ struct Globals
 
 static Globals globals;
 
+void atexit_handler()
+{
+    *(globals.outputfile) << globals.j->dump(4);
+    globals.outputfile->flush();
+	globals.outputfile->close();
+    delete globals.j;
+    std::cout << "File saved.\n";
+}
+
+const int a = atexit(atexit_handler);
+
 int main() {
     //Key pair protocol
     
@@ -269,16 +280,6 @@ int main() {
     CryptoPP::RSA::PublicKey publicKey;
     loadKeyPair(privateKeyPath, publicKeyPath, privateKey, publicKey);
 
-    //Message context loading protocol:
-    //Checks if "Message_Context.json" exists within the current working directory, if not, generates a new one.
-    //If it does exist, loads the file into a string and parses it into a json object.
-
-
-    // Append data to the JSON object
-    
-
-
-  
 
     //SSL protocol
 
@@ -304,12 +305,7 @@ int main() {
     socket.handshake(boost::asio::ssl::stream_base::handshake_type::client);
 
     std::cout << "SSL handshake completed successfully!" << std::endl;
-    //std::cin;
-    // Do other things with the SSL socket...
-    
-    //do_read(socket,read_buffer);
-    
-    //do_read(socket,read_buffer);
+
     queue<string> consoleQueue;
     mutex m;
     globals.m = &m;
@@ -324,8 +320,8 @@ int main() {
     const std::string jsonFileName = "Message_Context.json";
     
     
-    json jsonData;
-    globals.j = &jsonData;
+    globals.j = new json();
+    json& jsonData = *globals.j;
 
     bool jsonExists = fs::exists(jsonFileName);
 
@@ -367,8 +363,7 @@ int main() {
 
     }
 
-    //Prints JsonData to console
-    //std::cout << jsonData.dump(4) << std::endl;
+
 
     std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
     
@@ -380,6 +375,7 @@ int main() {
     
     return 0;
 }
+
 
 
 //On exit closes outputfile and saves json data to file.
