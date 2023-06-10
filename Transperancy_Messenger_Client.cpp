@@ -15,16 +15,25 @@
 #include <cryptopp/base64.h>
 #include <cryptopp/hex.h>
 #include <queue>
+//JSON
+#include <nlohmann/json.hpp>
+//#include <boost/property_tree/ptree.hpp>
+//#include <boost/property_tree/json_parser.hpp>
 //GUI
 #include <wx/wx.h>
+
+
 
 //#include <gtk/gtk.h>
 
 namespace fs = boost::filesystem;
+//namespace pt = boost::property_tree;
 using namespace std;
 using boost::asio::ip::tcp;
 namespace ssl = boost::asio::ssl;
 using namespace CryptoPP;
+using json = nlohmann::json;
+
 
 std::string encryptAESKeyWithPublicKey(const std::string& publicKeyString, const std::string& aesKey)
 {
@@ -190,7 +199,6 @@ void console_adaptor(queue<string> &que,mutex &m)
         std::getline(std::cin, input);
         m.lock();
         que.push(input);
-        cout << que.size() << endl;
         m.unlock();
 
     }
@@ -217,6 +225,18 @@ void Clear_Queue(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket,
 
 }
 
+struct Globals
+{
+    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> *socket;
+    queue<string> *que;
+    boost::asio::io_context *io_context;
+    mutex *m;
+    std::ofstream* outputfile;
+    json* j;
+};
+
+static Globals globals;
+
 int main() {
     //Key pair protocol
     
@@ -229,7 +249,7 @@ int main() {
         fs::create_directory(sslFolder);
         std::cout << "SSL folder created.\n";
     }
-    else if (checkKeysExist(privateKeyPath, publicKeyPath))
+    if (checkKeysExist(privateKeyPath, publicKeyPath))
     {
         std::cout << "Keys already exist in the SSL folder.\n";
         // Load keys and proceed with further operations if needed
@@ -239,20 +259,33 @@ int main() {
 
 
     }
-
-    generateKeyPair(privateKeyPath, publicKeyPath);
-    std::cout << "Key pair generated and saved in the SSL folder.\n";
-
+    else
+    {
+        generateKeyPair(privateKeyPath, publicKeyPath);
+        std::cout << "Key pair generated and saved in the SSL folder.\n";
+    }
     // Load keys and proceed with further operations if needed
     CryptoPP::RSA::PrivateKey privateKey;
     CryptoPP::RSA::PublicKey publicKey;
     loadKeyPair(privateKeyPath, publicKeyPath, privateKey, publicKey);
 
+    //Message context loading protocol:
+    //Checks if "Message_Context.json" exists within the current working directory, if not, generates a new one.
+    //If it does exist, loads the file into a string and parses it into a json object.
+
+
+    // Append data to the JSON object
     
+
+
+  
+
     //SSL protocol
 
     boost::asio::io_context io_context;
     boost::asio::ssl::context ssl_context(boost::asio::ssl::context::tlsv12_client);
+    
+    globals.io_context = &io_context;
 
     std::array<char, 1024> read_buffer;
     std::array<char, 1024> write_buffer;
@@ -263,6 +296,7 @@ int main() {
     // Create an SSL socket and connect to the server
     boost::asio::ssl::stream<boost::asio::ip::tcp::socket> socket(io_context, ssl_context);
     boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::make_address("127.0.0.1"), 8443);
+    globals.socket = &socket;
     socket.lowest_layer().connect(endpoint);
     
 
@@ -278,17 +312,78 @@ int main() {
     //do_read(socket,read_buffer);
     queue<string> consoleQueue;
     mutex m;
+    globals.m = &m;
+    globals.que = &consoleQueue;
+
     std::array<char, 1024> myArray2;
     Clear_Queue(socket, consoleQueue, io_context, m);
     do_read(socket,myArray2);
+
+
+    // Write the JSON object to the file
+    const std::string jsonFileName = "Message_Context.json";
+    
+    
+    json jsonData;
+    globals.j = &jsonData;
+
+    bool jsonExists = fs::exists(jsonFileName);
+
+
+    // Check if the file exists
+    if (jsonExists) {
+        cout << "JSON file exists" << endl;
+        // File exists, load it into the JSON object
+        std::ifstream file(jsonFileName);
+        std::stringstream buffer;
+        buffer << file.rdbuf(); // Read the contents of the file into a stringstream
+
+        std::string fileContents = buffer.str();
+
+        try {
+            jsonData = json::parse(fileContents);
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Error parsing JSON: " << e.what() << std::endl;
+            return 1;
+        }
+
+        file.close();
+        // jsonData = json::parse(file);
+    }
+    else {
+        cout << "JSON file does not exist" << endl;
+        // File doesn't exist, generate a new JSON object
+        jsonData["token"] = nullptr;
+        jsonData["groups"] = json::object();
+
+        std::cout << jsonData.dump(4) << std::endl;
+
+         std::ofstream outputFile(jsonFileName);
+         globals.outputfile = &outputFile;
+         outputFile << jsonData.dump(4);
+         outputFile.flush();
+         outputFile.close();
+
+    }
+
+    //Prints JsonData to console
+    //std::cout << jsonData.dump(4) << std::endl;
+
     std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
+    
+    //std::ofstream outputFile(jsonFileName);
+    //globals.outputfile = &outputFile;
+
+
     io_context.run();
     
     return 0;
 }
 
 
-
+//On exit closes outputfile and saves json data to file.
+//On exit closes socket and io_context.
 
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
