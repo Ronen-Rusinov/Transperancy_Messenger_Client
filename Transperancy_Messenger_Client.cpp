@@ -670,8 +670,8 @@ int main() {
                     {
                         if (value["groupid"] == tokens6[0])
                         {
-							value["keyid"] = tokens6[1];
-							value["key_body"] = tokens6[2];
+							value["keyid"] = tokens6[0];
+							value["key_body"] = tokens6[1];
 							break;
 						}
 					}
@@ -693,7 +693,8 @@ int main() {
     //std::ofstream outputFile(jsonFileName);
     //globals.outputfile = &outputFile;
 
-
+    std::array<char, 1024> myArray4;
+    do_read(socket,myArray4);
     io_context.run();
     
     return 0;

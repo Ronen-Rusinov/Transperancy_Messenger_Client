@@ -1,5 +1,15 @@
 {
-    "groups": [],
+    "groups": [
+        {
+            "groupid": "18",
+            "key_body": "BBB",
+            "keyid": "18",
+            "lastmesid": 1,
+            "messages": [
+                "AABBC"
+            ]
+        }
+    ],
     "pubkeys": [],
     "token": 216048088,
     "uid": 74
