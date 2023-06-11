@@ -34,6 +34,17 @@ namespace ssl = boost::asio::ssl;
 using namespace CryptoPP;
 using json = nlohmann::json;
 
+struct Globals
+{
+    CryptoPP::StringSink* snk;
+    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> *socket;
+    queue<string> *que;
+    boost::asio::io_context *io_context;
+    mutex *m;
+    std::ofstream* outputfile;
+    json* j;
+};
+static Globals globals;
 
 std::string encryptAESKeyWithPublicKey(const std::string& publicKeyString, const std::string& aesKey)
 {
@@ -173,11 +184,11 @@ void do_write(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, st
 
         [write_buffer](const boost::system::error_code& error, size_t length) {
             if (!error) {
-                cout << "Successfully written: " << write_buffer.data() << endl;
+              std::cout<< "Successfully written: " << write_buffer.data() << endl;
             }
             else
             {
-                cout << "Failed to write: " << write_buffer.data() << endl;
+              std::cout<< "Failed to write: " << write_buffer.data() << endl;
 
             }
 
@@ -225,22 +236,18 @@ void Clear_Queue(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket,
 
 }
 
-std::string publicKeyToHex(const CryptoPP::RSA::PublicKey& publicKey)
+void publicKeyToHex(const CryptoPP::RSA::PublicKey& publicKey,std::string& encodedPublicKey)
 {
-    std::string encodedPublicKey;
-    CryptoPP::StringSink* sink = new CryptoPP::StringSink(encodedPublicKey);
 
-    // HexEncoder provides the hex encoding functionality
-    CryptoPP::HexEncoder encoder(sink);
-    publicKey.Save(encoder);
+    globals.snk = new CryptoPP::StringSink(encodedPublicKey);
+    CryptoPP::HexEncoder* encoder = new CryptoPP::HexEncoder(globals.snk);
+    publicKey.Save(*encoder);
+    (*encoder).MessageEnd();
 
-    // Finalize the encoding
-    encoder.MessageEnd();
+    delete encoder;
+    //delete sink;
 
-    // Clean up the sink
-    delete sink;
-
-    return encodedPublicKey;
+    return;
 }
 
 std::string privateKeyToHex(const CryptoPP::RSA::PrivateKey& privateKey)
@@ -261,17 +268,6 @@ std::string privateKeyToHex(const CryptoPP::RSA::PrivateKey& privateKey)
     return encodedPrivateKey;
 }
 
-struct Globals
-{
-    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> *socket;
-    queue<string> *que;
-    boost::asio::io_context *io_context;
-    mutex *m;
-    std::ofstream* outputfile;
-    json* j;
-};
-
-static Globals globals;
 
 void atexit_handler()
 {
@@ -307,7 +303,7 @@ void tokenize(vector<string>& vec, const string& s, string del)
 
 int main() {
     //Key pair protocol
-    
+
     const std::string sslFolder = "SSL";
     const std::string privateKeyPath = sslFolder + "/private.key";
     const std::string publicKeyPath = sslFolder + "/public.key";
@@ -367,7 +363,6 @@ int main() {
 
     std::array<char, 1024> myArray2;
     Clear_Queue(socket, consoleQueue, io_context, m);
-    do_read(socket,myArray2);
 
 
     // Write the JSON object to the file
@@ -379,10 +374,10 @@ int main() {
 
     bool jsonExists = fs::exists(jsonFileName);
 
-
+    
     // Check if the file exists
     if (jsonExists) {
-        cout << "JSON file exists" << endl;
+      std::cout<< "JSON file exists" << endl;
         // File exists, load it into the JSON object
         std::ifstream file(jsonFileName);
         std::stringstream buffer;
@@ -402,7 +397,7 @@ int main() {
         // jsonData = json::parse(file);
     }
     else {
-        cout << "JSON file does not exist" << endl;
+      std::cout<< "JSON file does not exist" << endl;
         // File doesn't exist, generate a new JSON object
 
         jsonData["uid"] = nullptr;
@@ -411,8 +406,8 @@ int main() {
 
         std::cout << jsonData.dump(4) << std::endl;
 
-         std::ofstream outputFile(jsonFileName);
-         globals.outputfile = &outputFile;
+         globals.outputfile =new std::ofstream(jsonFileName);
+         std::ofstream& outputFile = *globals.outputfile;
          outputFile << jsonData.dump(4);
          outputFile.flush();
          outputFile.close();
@@ -424,20 +419,38 @@ int main() {
         //Initiate signup
 
         //initialise a string with hex encoded public key
-        std::string hexPublicKey = publicKeyToHex(publicKey);
-        cout << hexPublicKey << endl;
+        std::cout<< "TEST10" << endl;
+        std::string hexPublicKey;
+        publicKeyToHex(publicKey,hexPublicKey); 
+        //delete globals.snk;
+        
+        
+      std::cout<< "TEST11" << endl;
+      std::cout<< hexPublicKey << endl;
+
+
 
         //Initialise a SIGNUP request string with the hex encoded public key
         std::string signupRequest = "SIGNUP " + hexPublicKey + "]";
 
         //Send the SIGNUP request to the server
-        boost::asio::write(socket, boost::asio::buffer(signupRequest));
+        //boost::asio::write(socket, boost::asio::buffer(signupRequest));
+        socket.write_some(boost::asio::buffer(signupRequest));
 
         //Read the response from the server
         std::array<char, 1024> myArray;
-        boost::asio::read(socket, boost::asio::buffer(myArray));
+        
+        int timeoutDuration = 10;
+
+        // Perform the read operation
+        socket.read_some(boost::asio::buffer(myArray));
+
+        // Run the I/O service on the main thread
+
+        std::cout << "TEST12" << endl;
+
         std::string response = myArray.data();
-        std::cout << response << std::endl;
+        //std::cout << response << std::endl;
 
         //REFERENCE:
         //"CODE=200\nSIGNUP SUCCESS\nUID=" + rows[0][0] + " TOKEN=" + std::to_string(token)
@@ -448,19 +461,39 @@ int main() {
         std::vector<std::string> tokens2;
         tokenize(tokens2, tokens[2], " ");
         
+        /*
+        //Writes the response code to the console
+        std::cout << tokens[0] << std::endl;
+        //Writes the UID to the console
+        std::cout << tokens2[0] << std::endl;
+        //Writes the token to the console
+        std::cout << tokens2[1] << std::endl;
+        */
+
+
         //Extracts rows[0][0] from UID=rows[0][0]
         std::string uid = tokens2[0].substr(4, tokens2[0].length() - 4);
 
         //Extracts token from TOKEN=token
         std::string token = tokens2[1].substr(6, tokens2[1].length() - 6);
 
+        //Writes the extracted uid and token
+        std::cout << uid << std::endl;
+        std::cout << token << std::endl;
+
+
         //Update the JSON object
         jsonData["token"] = stoi(token);
         jsonData["uid"] = stoi(uid);
 
+        //prints the JSON object
+        std::cout << jsonData.dump(4) << std::endl;
+
+
         //Write the JSON object to the file
         *globals.outputfile << jsonData.dump(4);
         globals.outputfile->flush();
+        //globals.outputfile->close();
 
     }
     else 
@@ -477,7 +510,7 @@ int main() {
         // "CODE=500\nSIGNIN FAILURE"
         //Read the response from the server
         std::array<char, 1024> myArray;
-        boost::asio::read(socket, boost::asio::buffer(myArray));
+        socket.read_some(boost::asio::buffer(myArray));
 
         //Checks the response code
         std::string response = myArray.data();
@@ -542,7 +575,7 @@ int main() {
         //Checks the response code
         if (tokens3[0] != "CODE=200")
         {
-            cout << "Getcontext failed" << endl;
+          std::cout<< "Getcontext failed" << endl;
         }
         else
         {
@@ -611,11 +644,12 @@ int main() {
             globals.outputfile->flush();
 
             //Prints the json data to the console
-            cout << jsonData.dump(4) << endl;
+          std::cout<< jsonData.dump(4) << endl;
         }
     }
+    
 
-
+    //do_read(socket,myArray2);
     std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
     
     //std::ofstream outputFile(jsonFileName);
