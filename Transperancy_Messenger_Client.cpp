@@ -43,6 +43,7 @@ struct Globals
     mutex *m;
     std::ofstream* outputfile;
     json* j;
+    string JSONfilename;
 };
 static Globals globals;
 
@@ -268,12 +269,21 @@ std::string privateKeyToHex(const CryptoPP::RSA::PrivateKey& privateKey)
     return encodedPrivateKey;
 }
 
+void updateJSONfile()
+{
+    std::ofstream outputFile(globals.JSONfilename, std::ios::trunc);
+    outputFile << (globals.j)->dump(4);
+    outputFile.flush();
+    outputFile.close();
+}
 
 void atexit_handler()
 {
-    *(globals.outputfile) << globals.j->dump(4);
-    globals.outputfile->flush();
-	globals.outputfile->close();
+
+    std::ofstream outputFile(globals.JSONfilename, std::ios::trunc);
+    outputFile << (*globals.j).dump(4);
+    outputFile.flush();
+    outputFile.close();
     delete globals.j;
     std::cout << "File saved.\n";
 }
@@ -366,7 +376,8 @@ int main() {
 
 
     // Write the JSON object to the file
-    const std::string jsonFileName = "Message_Context.json";
+    globals.JSONfilename = "Message_Context.json";
+    std::string& jsonFileName = globals.JSONfilename;
     
     
     globals.j = new json();
@@ -406,12 +417,7 @@ int main() {
 
         std::cout << jsonData.dump(4) << std::endl;
 
-         globals.outputfile =new std::ofstream(jsonFileName);
-         std::ofstream& outputFile = *globals.outputfile;
-         outputFile << jsonData.dump(4);
-         outputFile.flush();
-         outputFile.close();
-
+        updateJSONfile();
     }
 
     if (!jsonExists)
@@ -490,10 +496,7 @@ int main() {
         std::cout << jsonData.dump(4) << std::endl;
 
 
-        //Write the JSON object to the file
-        *globals.outputfile << jsonData.dump(4);
-        globals.outputfile->flush();
-        //globals.outputfile->close();
+        updateJSONfile();
 
     }
     else 
