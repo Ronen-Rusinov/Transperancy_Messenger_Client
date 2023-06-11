@@ -414,6 +414,7 @@ int main() {
         jsonData["uid"] = nullptr;
         jsonData["token"] = nullptr;
         jsonData["groups"] = json::array();
+        jsonData["pubkeys"] = json::array();
 
         std::cout << jsonData.dump(4) << std::endl;
 
@@ -506,7 +507,7 @@ int main() {
         std::string signinRequest = "SIGNIN UID=" + std::to_string(jsonData["uid"].get<int>()) + " TOKEN=" + std::to_string(jsonData["token"].get<int>()) + "]";
 
         //Send the SIGNIN request to the server
-        boost::asio::write(socket, boost::asio::buffer(signinRequest));
+        socket.write_some(boost::asio::buffer(signinRequest));
 
         //REFERENCE "CODE=200\nSIGNIN SUCCESS"
         // "CODE=401\nSIGNIN FAILURE"
@@ -532,33 +533,60 @@ int main() {
         
         //iterates over all groups and finds their last mesid, while constructing a request string
         stringstream ss;
-        ss << "GETCONTEXT CURRENT=[";
+        ss << "CONTEXT CURRENT=[";
 
         //checks that there are groups in the json file
         //if not, gets context for group 0 from mesid 0
         if (jsonData["groups"].size() == 0)
         {
-            ss << "0,0\]";
+            ss << "2147483647,0\]";
+        }
+        else
+        {
+            for (const auto& value : jsonData["groups"])
+            {
+                cout << value.dump(3) << endl;
+
+                std::string groupid = value["groupid"];
+                int lastmesid = value["lastmesid"];
+                
+                /*
+                int groupid = value["groupid"].get<int>();
+                int lastmesid = value["lastmesid"].get<int>();
+                */
+
+
+                std::string groupidlastmesid = groupid + "," + to_string(lastmesid);
+
+                if (value == jsonData["groups"][0])
+                {
+                }
+                else
+                {
+                    ss << "&";
+                }
+                ss << groupidlastmesid;
+
+            }
+            ss << "\]";
         }
 
-        for (const auto& value : jsonData["groups"])
-        {
-			std::string groupid = value["groupid"].get<std::string>();
-			std::string lastmesid = value["lastmesid"].get<std::string>();
-
-			std::string groupidlastmesid = groupid + "," + lastmesid;
-
-			ss << "&" + groupidlastmesid;
-		
-		}
-        ss << "\]";
+        std::cout << ss.str() << std::endl;
 
         //Send the GETCONTEXT request to the server
-        boost::asio::write(socket, boost::asio::buffer(ss.str()));
+        socket.write_some(boost::asio::buffer(ss.str()));
         
         //Read the response from the server
+        
+
+        
         std::array<char, 1024> myArray2;
-        boost::asio::read(socket, boost::asio::buffer(myArray2));
+        char DEFAULT_VALUE = '\0';
+        for (int i = 0; i < myArray2.size(); ++i) {
+            myArray2[i] = DEFAULT_VALUE;
+        }
+
+        socket.read_some(boost::asio::buffer(myArray2));
         std::string response2 = myArray2.data();
         std::cout << response2 << std::endl;
         //REFERENCE: CODE=200\n<gid>,<mes>,<mes>\n<gid>,<mes>,<mes>&<keyid>,<key_body>\n<keyid>,<key_body>
@@ -587,9 +615,15 @@ int main() {
             //Otherwise, append the messages to the group.
             
             std::vector<string> tokens6;
+            cout<< jsonData.dump(4) << endl;
 
-            for (auto& group : tokens3)
+            for (int i=1;i< tokens3.size();i++)
             {
+                string& group = tokens3[i];
+                if (group == "")
+                {
+                    break;
+                }
                 tokens6.clear();
 				tokenize(tokens6, group, ",");
 				bool groupExists = false;
@@ -605,10 +639,12 @@ int main() {
                 {
 					json newGroup;
 					newGroup["groupid"] = tokens6[0];
-					newGroup["lastmesid"] = tokens6[1];
+					newGroup["lastmesid"] = 0;
 					newGroup["messages"] = json::array();
 					jsonData["groups"].push_back(newGroup);
 				}
+
+
                 for (auto& value : jsonData["groups"])
                 {
                     if (value["groupid"] == tokens6[0])
@@ -643,8 +679,7 @@ int main() {
             }
 
             //Writes the json data to the file
-            *globals.outputfile << jsonData.dump(4);
-            globals.outputfile->flush();
+            updateJSONfile();
 
             //Prints the json data to the console
           std::cout<< jsonData.dump(4) << endl;
