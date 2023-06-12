@@ -1,6 +1,6 @@
 // Transperancy_Messenger_Client.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
-
+#include <cstdlib> 
 #include <iostream>
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
@@ -20,11 +20,8 @@
 //#include <boost/property_tree/ptree.hpp>
 //#include <boost/property_tree/json_parser.hpp>
 //GUI
-#include <wx/wx.h>
 
 
-
-//#include <gtk/gtk.h>
 
 namespace fs = boost::filesystem;
 //namespace pt = boost::property_tree;
@@ -36,10 +33,11 @@ using json = nlohmann::json;
 
 struct Globals
 {
+    int state;
     CryptoPP::StringSink* snk;
     boost::asio::ssl::stream<boost::asio::ip::tcp::socket> *socket;
     queue<string> *que;
-    boost::asio::io_context *io_context;
+    boost::asio::io_context* io_context;
     mutex *m;
     std::ofstream* outputfile;
     json* j;
@@ -47,14 +45,10 @@ struct Globals
 };
 static Globals globals;
 
-std::string encryptAESKeyWithPublicKey(const std::string& publicKeyString, const std::string& aesKey)
+std::string encryptAESKeyWithPublicKey(CryptoPP::RSA::PublicKey& publicKey, const std::string& aesKey)
 {
     try
     {
-        // Load the public key from a string
-        CryptoPP::RSA::PublicKey publicKey;
-        StringSource publicKeySource(publicKeyString, true);
-        publicKey.Load(publicKeySource);
 
         // Convert the AES key from string to byte array
         byte aesKeyArray[AES::DEFAULT_KEYLENGTH];
@@ -70,7 +64,9 @@ std::string encryptAESKeyWithPublicKey(const std::string& publicKeyString, const
         // Convert the encrypted key to hexadecimal format
         std::string encryptedKeyHex;
         StringSource(encryptedKey, encryptedKey.size(), true,
-            new HexEncoder(new StringSink(encryptedKeyHex)));
+        new HexEncoder(new StringSink(encryptedKeyHex)));
+
+
 
         return encryptedKeyHex;
     }
@@ -82,19 +78,17 @@ std::string encryptAESKeyWithPublicKey(const std::string& publicKeyString, const
 }
 
 
-std::string decryptAESKeyWithPrivateKey(const std::string& privateKeyString, const std::string& encryptedAESKeyHex)
+std::string decryptAESKeyWithPrivateKey(CryptoPP::RSA::PrivateKey& privateKey, const std::string& encryptedAESKeyHex)
 {
     try
     {
-        // Load the private key from a string
-        CryptoPP::RSA::PrivateKey privateKey;
-        StringSource privateKeySource(privateKeyString, true);
-        privateKey.Load(privateKeySource);
 
         // Convert the encrypted key from hexadecimal to byte array
         std::string encryptedKey;
-        StringSource(encryptedAESKeyHex, true,
-            new HexDecoder(new StringSink(encryptedKey)));
+        StringSink* stringSink = new StringSink(encryptedKey);
+        globals.snk = stringSink;
+        HexDecoder hexDecoder(stringSink);
+        StringSource* stringSource = new StringSource(encryptedAESKeyHex, true, &hexDecoder);
 
         // Decrypt the AES key using the private key
         RSAES_OAEP_SHA_Decryptor decryptor(privateKey);
@@ -199,10 +193,53 @@ void do_write(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, st
     );
 }
 
+void draw_GUI()
+{
+    json& jsonData = *globals.j;
+    system("cls");
+    std::cout << "" << std::endl;
+    std::cout << "           |----------------------|" << std::endl;
+    std::cout << "           |   ################   |" << std::endl;
+    std::cout << "           |   ################   |" << std::endl;
+    std::cout << "           |         ####         |" << std::endl;
+    std::cout << "           |         ####         |" << std::endl;
+    std::cout << "           |         ####         |" << std::endl;
+    std::cout << "           |         ####         |" << std::endl;
+    std::cout << "           |         ####         |" << std::endl;
+    std::cout << "           |         ####         |" << std::endl;
+    std::cout << "           |         ####         |" << std::endl;
+    std::cout << "           |----------------------|" << std::endl;
+    std::cout << "" << std::endl;
+
+    std::cout << "-+=}>|-------------------------------------|<{=+-" << std::endl;
+
+    //Iterates over all groups and prints the group id, and on lower lines their meseges
+    for (auto& group : jsonData["groups"])
+    {
+		std::cout << "|----------------|" << std::endl;
+		std::cout << "  Group ID:" << group["id"] << std::endl;
+        std::cout << "|----------------|" << std::endl;
+
+        for (auto& message : group["messages"])
+        {
+			std::cout << "    " << message["content"] << std::endl;
+		}
+	}
+
+
+}
+
 void console_adaptor(queue<string> &que,mutex &m)
 {
     while (1)
     {
+
+
+
+        
+
+
+
         std::array<char, 1024> myArray;
         std::cout << "Enter a string: ";
 
@@ -308,6 +345,12 @@ void tokenize(vector<string>& vec, const string& s, string del)
         end = s.find(del, start);
         vec.emplace_back(s.substr(start, end - start));
     } while (end != -1);
+}
+
+
+void io_context_thread()
+{
+	(*globals.io_context).run();
 }
 
 
@@ -426,15 +469,10 @@ int main() {
         //Initiate signup
 
         //initialise a string with hex encoded public key
-        std::cout<< "TEST10" << endl;
         std::string hexPublicKey;
         publicKeyToHex(publicKey,hexPublicKey); 
         //delete globals.snk;
         
-        
-      std::cout<< "TEST11" << endl;
-      std::cout<< hexPublicKey << endl;
-
 
 
         //Initialise a SIGNUP request string with the hex encoded public key
@@ -454,7 +492,6 @@ int main() {
 
         // Run the I/O service on the main thread
 
-        std::cout << "TEST12" << endl;
 
         std::string response = myArray.data();
         //std::cout << response << std::endl;
@@ -468,15 +505,6 @@ int main() {
         std::vector<std::string> tokens2;
         tokenize(tokens2, tokens[2], " ");
         
-        /*
-        //Writes the response code to the console
-        std::cout << tokens[0] << std::endl;
-        //Writes the UID to the console
-        std::cout << tokens2[0] << std::endl;
-        //Writes the token to the console
-        std::cout << tokens2[1] << std::endl;
-        */
-
 
         //Extracts rows[0][0] from UID=rows[0][0]
         std::string uid = tokens2[0].substr(4, tokens2[0].length() - 4);
@@ -484,17 +512,11 @@ int main() {
         //Extracts token from TOKEN=token
         std::string token = tokens2[1].substr(6, tokens2[1].length() - 6);
 
-        //Writes the extracted uid and token
-        std::cout << uid << std::endl;
-        std::cout << token << std::endl;
 
 
         //Update the JSON object
         jsonData["token"] = stoi(token);
         jsonData["uid"] = stoi(uid);
-
-        //prints the JSON object
-        std::cout << jsonData.dump(4) << std::endl;
 
 
         updateJSONfile();
@@ -518,12 +540,10 @@ int main() {
 
         //Checks the response code
         std::string response = myArray.data();
-        std::cout << response << std::endl;
         std::vector<string> tokens;
         tokenize(tokens, response, "\n");
         if (tokens[0] != "CODE=200")
         {
-			std::cout << "Signin failed" << std::endl;
 			return 1;
 		}
 
@@ -545,7 +565,6 @@ int main() {
         {
             for (const auto& value : jsonData["groups"])
             {
-                cout << value.dump(3) << endl;
 
                 std::string groupid = value["groupid"];
                 int lastmesid = value["lastmesid"];
@@ -571,8 +590,6 @@ int main() {
             ss << "\]";
         }
 
-        std::cout << ss.str() << std::endl;
-
         //Send the GETCONTEXT request to the server
         socket.write_some(boost::asio::buffer(ss.str()));
         
@@ -588,7 +605,6 @@ int main() {
 
         socket.read_some(boost::asio::buffer(myArray2));
         std::string response2 = myArray2.data();
-        std::cout << response2 << std::endl;
         //REFERENCE: CODE=200\n<gid>,<mes>,<mes>\n<gid>,<mes>,<mes>&<keyid>,<key_body>\n<keyid>,<key_body>
         //REFERENCE: CODE=401\nGETCONTEXT FAILURE
 
@@ -607,6 +623,7 @@ int main() {
         if (tokens3[0] != "CODE=200")
         {
           std::cout<< "Getcontext failed" << endl;
+          return -1;
         }
         else
         {
@@ -615,7 +632,32 @@ int main() {
             //Otherwise, append the messages to the group.
             
             std::vector<string> tokens6;
-            cout<< jsonData.dump(4) << endl;
+
+            //generates a group for each recieved key and initialises default values
+            if (tokens2.size() > 1)
+            {
+                for (auto& key : tokens4)
+                {
+                    if (key == "")
+                    {
+                        continue;
+                    }
+
+					tokens6.clear();
+					tokenize(tokens6, key, ",");
+                    json newGroup;
+                    //decrypts the aes key in tokens6[1] using the private key
+                    decryptAESKeyWithPrivateKey(privateKey, tokens6[1]);
+                    //delete globals.snk;
+
+                    newGroup["groupid"] = tokens6[0];
+                    newGroup["key"] = tokens6[1];
+                    newGroup["lastmesid"] = 0;
+                    newGroup["messages"] = json::array();
+                    jsonData["groups"].push_back(newGroup);
+   
+				}
+            }
 
             for (int i=1;i< tokens3.size();i++)
             {
@@ -626,24 +668,6 @@ int main() {
                 }
                 tokens6.clear();
 				tokenize(tokens6, group, ",");
-				bool groupExists = false;
-                for (auto& value : jsonData["groups"])
-                {
-                    if (value["groupid"] == tokens6[0])
-                    {
-						groupExists = true;
-						break;
-					}
-				}
-                if (!groupExists)
-                {
-					json newGroup;
-					newGroup["groupid"] = tokens6[0];
-					newGroup["lastmesid"] = 0;
-					newGroup["messages"] = json::array();
-					jsonData["groups"].push_back(newGroup);
-				}
-
 
                 for (auto& value : jsonData["groups"])
                 {
@@ -659,43 +683,24 @@ int main() {
 				}
 			}
 
-            //Adds the keys to their respective groups
-            if (tokens2.size() > 1)
-            {
-                for (auto& key : tokens4)
-                {
-					tokens6.clear();
-					tokenize(tokens6, key, ",");
-                    for (auto& value : jsonData["groups"])
-                    {
-                        if (value["groupid"] == tokens6[0])
-                        {
-							value["keyid"] = tokens6[0];
-							value["key_body"] = tokens6[1];
-							break;
-						}
-					}
-				}
-            }
 
             //Writes the json data to the file
             updateJSONfile();
 
-            //Prints the json data to the console
-          std::cout<< jsonData.dump(4) << endl;
         }
     }
     
+    
+    
 
     //do_read(socket,myArray2);
-    std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
+    //std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
+    //std::thread t3(io_context_thread);
     
+    //frame.Show(true);
+
     //std::ofstream outputFile(jsonFileName);
     //globals.outputfile = &outputFile;
-
-    std::array<char, 1024> myArray4;
-    do_read(socket,myArray4);
-    io_context.run();
     
     return 0;
 }

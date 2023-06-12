@@ -1,12 +1,17 @@
 {
     "groups": [
         {
+            "groupid": "17",
+            "key": "AAA",
+            "lastmesid": 0,
+            "messages": []
+        },
+        {
             "groupid": "18",
-            "key_body": "BBB",
-            "keyid": "18",
+            "key": "BBB",
             "lastmesid": 1,
             "messages": [
-                "AABBC"
+                "74: AABBC"
             ]
         }
     ],
