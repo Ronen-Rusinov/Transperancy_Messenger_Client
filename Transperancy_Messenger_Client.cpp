@@ -45,30 +45,75 @@ struct Globals
 };
 static Globals globals;
 
-std::string encryptAESKeyWithPublicKey(CryptoPP::RSA::PublicKey& publicKey, const std::string& aesKey)
+void tokenize(vector<string>& vec, string& s, string del)
+{
+    int start, end = -1 * del.size();
+    do {
+        start = end + del.size();
+        end = s.find(del, start);
+        vec.emplace_back(s.substr(start, end - start));
+    } while (end != -1);
+}
+
+void tokenize(vector<string>& vec, const string& s, string del)
+{
+    int start, end = -1 * del.size();
+    do {
+        start = end + del.size();
+        end = s.find(del, start);
+        vec.emplace_back(s.substr(start, end - start));
+    } while (end != -1);
+}
+
+std::string bytesToHexString(const std::vector<uint8_t>& bytes) {
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+
+    for (const auto& byte : bytes) {
+        ss << std::setw(2) << static_cast<int>(byte);
+    }
+
+    return ss.str();
+}
+
+class ConstantRNG : public CryptoPP::RandomNumberGenerator
+{
+public:
+    ConstantRNG(const std::vector<uint8_t>& constantValue) : constantValue_(constantValue) {}
+
+    void GenerateBlock(byte* output, size_t size) override
+    {
+        std::fill_n(output, size, 0); // Fill the output buffer with zeroes
+        std::copy_n(constantValue_.data(), std::min(size, constantValue_.size()), output); // Copy the constant value
+    }
+
+private:
+    std::vector<uint8_t> constantValue_;
+};
+
+std::string encryptStringWithPublicKey(CryptoPP::RSA::PublicKey& publicKey, std::string plaintextMessage)
 {
     try
     {
+        // Create encryptor object
+        CryptoPP::RSAES_OAEP_SHA_Encryptor encryptor(publicKey);
 
-        // Convert the AES key from string to byte array
-        byte aesKeyArray[AES::DEFAULT_KEYLENGTH];
-        memcpy(aesKeyArray, aesKey.data(), AES::DEFAULT_KEYLENGTH);
+        /*
+        std::string seedValue = "MySeedValue";
+        CryptoPP::AutoSeededX917RNG<CryptoPP::AES> rng(seedValue.data(), seedValue.size());
+        */
 
-        // Encrypt the AES key using the public key
-        RSAES_OAEP_SHA_Encryptor encryptor(publicKey);
-        size_t ciphertextLength = encryptor.CiphertextLength(AES::DEFAULT_KEYLENGTH);
-        SecByteBlock encryptedKey(ciphertextLength);
-        AutoSeededRandomPool prng;
-        encryptor.Encrypt(prng, aesKeyArray, AES::DEFAULT_KEYLENGTH, encryptedKey);
+        std::vector<uint8_t> constantValue = { 0xDE, 0xAD, 0xBE, 0xEF }; // Example constant value
+        ConstantRNG rng(constantValue);
 
-        // Convert the encrypted key to hexadecimal format
-        std::string encryptedKeyHex;
-        StringSource(encryptedKey, encryptedKey.size(), true,
-        new HexEncoder(new StringSink(encryptedKeyHex)));
+        // Encrypt the message
+        std::vector<uint8_t> encryptedBytes;
+        CryptoPP::StringSource ss(plaintextMessage, true /*pumpAll*/,
+            new CryptoPP::PK_EncryptorFilter(rng, encryptor,
+                new CryptoPP::HexEncoder(new CryptoPP::VectorSink(encryptedBytes))));
 
-
-
-        return encryptedKeyHex;
+        std::string hexString = bytesToHexString(encryptedBytes);
+        return hexString;
     }
     catch (const Exception& ex)
     {
@@ -78,40 +123,50 @@ std::string encryptAESKeyWithPublicKey(CryptoPP::RSA::PublicKey& publicKey, cons
 }
 
 
-std::string decryptAESKeyWithPrivateKey(CryptoPP::RSA::PrivateKey& privateKey, const std::string& encryptedAESKeyHex)
-{
-    try
-    {
+// Function to convert a hex string to bytes
+std::vector<uint8_t> hexStringToBytes(const std::string& hexString) {
+    std::vector<uint8_t> bytes;
+    bytes.reserve(hexString.length() / 2);
 
-        // Convert the encrypted key from hexadecimal to byte array
-        std::string encryptedKey;
-        StringSink* stringSink = new StringSink(encryptedKey);
-        globals.snk = stringSink;
-        HexDecoder hexDecoder(stringSink);
-        StringSource* stringSource = new StringSource(encryptedAESKeyHex, true, &hexDecoder);
-
-        // Decrypt the AES key using the private key
-        RSAES_OAEP_SHA_Decryptor decryptor(privateKey);
-        size_t decryptedLength = decryptor.FixedCiphertextLength();
-        SecByteBlock decryptedKey(decryptedLength);
-        AutoSeededRandomPool prng;
-        ArraySource as(reinterpret_cast<const byte*>(encryptedKey.data()), encryptedKey.size(), true);
-        as.Attach(new PK_DecryptorFilter(prng, decryptor,
-            new ArraySink(decryptedKey, decryptedLength)));
-        as.PumpAll();
-
-        // Convert the decrypted key to string
-        std::string decryptedKeyString(reinterpret_cast<const char*>(decryptedKey.data()), decryptedLength);
-
-        return decryptedKeyString;
+    for (std::size_t i = 0; i < hexString.length(); i += 2) {
+        std::istringstream iss(hexString.substr(i, 2));
+        uint8_t byte;
+        iss >> std::hex >> byte;
+        bytes.push_back((byte));
     }
-    catch (const Exception& ex)
-    {
-        std::cerr << "Crypto++ library exception: " << ex.what() << std::endl;
-        return "";
-    }
+
+    return bytes;
 }
 
+std::string decryptHexWithPrivateKey(CryptoPP::RSA::PrivateKey& privateKey, const std::string& hexString) {
+    {
+        try
+        {
+        std::vector<uint8_t> encryptedBytes = hexStringToBytes(hexString);
+        CryptoPP::RSAES_OAEP_SHA_Decryptor decryptor(privateKey);
+
+        std::vector<uint8_t> constantValue = { 0xDE, 0xAD, 0xBE, 0xEF }; // Example constant value
+        ConstantRNG rng(constantValue);
+
+        std::string decryptedMessage;
+        CryptoPP::DecodingResult result = decryptor.Decrypt(rng, reinterpret_cast<CryptoPP::byte*>(encryptedBytes.data()), encryptedBytes.size(), reinterpret_cast<CryptoPP::byte*>(const_cast<char*>(decryptedMessage.data())));
+        if (!result.isValidCoding)
+        {
+            throw std::runtime_error("Decryption failed");
+        }
+        decryptedMessage.resize(result.messageLength);
+        return decryptedMessage;
+        }
+        catch (const Exception& ex)
+        {
+			std::cerr << "Crypto++ library exception: " << ex.what() << std::endl;
+        }
+        
+        return "";
+    }
+
+    
+}
 
 void generateKeyPair(const std::string& privateKeyPath, const std::string& publicKeyPath)
 {
@@ -195,8 +250,10 @@ void do_write(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, st
 
 void draw_GUI()
 {
-    json& jsonData = *globals.j;
     system("cls");
+    json& jsonData = *globals.j;
+    cout << jsonData.dump(4) << endl;
+
     std::cout << "" << std::endl;
     std::cout << "           |----------------------|" << std::endl;
     std::cout << "           |   ################   |" << std::endl;
@@ -226,29 +283,186 @@ void draw_GUI()
 		}
 	}
 
+    switch (globals.state)
+    {
+
+        case(0):
+    
+            cout << "What operation would you like to do?" << endl;
+            cout << "1. Create a group" << endl;
+            cout << "2. Post to a group" << endl;
+            break;
+    
+        case(1):
+    
+            cout <<"Write the uids of the users you wish to add to this new group. (Comma delimitered):" << endl;
+            break;
+        case(2):
+    
+            cout << "Write the group id you wish to post to, followed by an ampersand and the messege you wish to write:" << endl;
+    		break;
+        case(3):
+	
+            cout << "Invalid input, try again.\n" << endl;
+            cout << "What operation would you like to do?" << endl;
+            cout << "1. Create a group" << endl;
+            cout << "2. Post to a group" << endl;
+            break;
+        case(5):
+            cout << "Manual override initiated:" << endl;
+            break;
+    }
+    
 
 }
 
 void console_adaptor(queue<string> &que,mutex &m)
 {
+    cout << "YEAA HAW" << endl;
     while (1)
     {
-
-
-
-        
-
-
-
-        std::array<char, 1024> myArray;
-        std::cout << "Enter a string: ";
+        draw_GUI();
 
         // Read input from console
         std::string input;
         std::getline(std::cin, input);
-        m.lock();
-        que.push(input);
-        m.unlock();
+
+        if (globals.state == 3)
+        {
+            globals.state == 0;
+        }
+
+        if (globals.state == 0)
+        {
+            if (input[0] == '1')
+            {
+                globals.state = 1;
+            }
+            else if (input[0] == '2')
+            {
+                globals.state = 2;
+			}
+            else if (input[0] == '5')
+            {
+                globals.state = 5;
+            }
+            else
+            {
+                globals.state = 3;
+            }
+
+
+        }
+        else if (globals.state == 1)
+        {
+            string input;
+            std::getline(std::cin, input);
+            //tokenises the input by comma
+            vector<string> result;
+            tokenize(result,input, ",");
+            if (result.size() < 1)
+            {
+                globals.state = 3;
+            }
+            else
+            {
+                //checks that all values in result are numbers
+                for (int i = 0; i < result.size(); i++)
+                {
+                    stringstream ss(result[i]);
+                    int num;
+
+                    ss >> num;
+
+                    if (ss.fail()) {
+    					globals.state = 3;
+                    }
+
+				}
+                if (globals.state == 1)
+                {
+                    //REFERENCE
+                    // "^CREATEGR UIDS=\\[(?:\\d{1,10})(?:,\\d{1,10}){0,19}\\] KEYS=\\[(?:[0-9A-F]+)(?:,[0-9A-F]+)*\\]")
+                    //Create a CREATEGR message
+                    json& jsonData = *globals.j;
+                    stringstream ss;
+                    ss << "CREATEGR UIDS=[";
+                    ss << input << "] KEYS=[0";
+                    for (int j = 0; j < result.size() - 1; j++)
+                    {
+                        ss << ",0";
+                    }
+                    ss << "]";
+
+                    string* message = new string();
+                    *message = ss.str();
+                    //send the message
+                    (*globals.m).lock();
+                    (*globals.socket).async_write_some(boost::asio::buffer(*message),
+                        [&](const boost::system::error_code& error, size_t length) {
+                            delete message;
+						}
+                    					);
+                    (*globals.m).unlock();
+                    globals.state = 0;
+                }
+            }
+
+
+        }
+        else if (globals.state == 2)
+        {
+            std::string input;
+            std::getline(std::cin, input);
+            //tokenises the input by ampersand
+            vector<string> result;
+            tokenize(result, input, "&");
+            if (result.size() != 2)
+            {
+                globals.state = 3;
+            }
+            else
+            {
+                //REFERENCE
+                //^POST GID=\\d{1,10} KEYID=\\d{1,5} MES=[0-9A-F]+\\]
+                //Create a POST message
+                json& jsonData = *globals.j;
+                stringstream ss;
+                ss << "POST GID=";
+                ss << result[0] << " KEYID=0 MES=[";
+                ss << result[1] << "]";
+                string* message = new string();
+                *message = ss.str();
+                //send the message
+				(*globals.m).lock();
+				(*globals.socket).async_write_some(boost::asio::buffer(*message),
+                    [&](const boost::system::error_code& error, size_t length) {
+						delete message;
+					});
+				(*globals.m).unlock();
+                globals.state = 0;
+            }
+		}
+
+        else if (globals.state == 5)
+        {
+            //sends the input to the server
+            string* message = new string();
+            *message = input;
+            //send the message
+			(*globals.m).lock();
+            (*globals.socket).async_write_some(boost::asio::buffer(*message),
+                [&](const boost::system::error_code& error, size_t length) {
+                    delete message;
+                });
+            (*globals.m).unlock();
+            globals.state = 0;
+        }
+
+        //m.lock();
+        //que.push(input);
+        //m.unlock();
+
 
     }
 
@@ -286,6 +500,7 @@ void publicKeyToHex(const CryptoPP::RSA::PublicKey& publicKey,std::string& encod
     //delete sink;
 
     return;
+
 }
 
 std::string privateKeyToHex(const CryptoPP::RSA::PrivateKey& privateKey)
@@ -327,32 +542,6 @@ void atexit_handler()
 
 const int a = atexit(atexit_handler);
 
-void tokenize(vector<string>& vec, string& s, string del)
-{
-    int start, end = -1 * del.size();
-    do {
-        start = end + del.size();
-        end = s.find(del, start);
-        vec.emplace_back(s.substr(start, end - start));
-    } while (end != -1);
-}
-
-void tokenize(vector<string>& vec, const string& s, string del)
-{
-    int start, end = -1 * del.size();
-    do {
-        start = end + del.size();
-        end = s.find(del, start);
-        vec.emplace_back(s.substr(start, end - start));
-    } while (end != -1);
-}
-
-
-void io_context_thread()
-{
-	(*globals.io_context).run();
-}
-
 
 int main() {
     //Key pair protocol
@@ -386,7 +575,6 @@ int main() {
     CryptoPP::RSA::PublicKey publicKey;
     loadKeyPair(privateKeyPath, publicKeyPath, privateKey, publicKey);
 
-
     //SSL protocol
 
     boost::asio::io_context io_context;
@@ -414,8 +602,20 @@ int main() {
     globals.m = &m;
     globals.que = &consoleQueue;
 
+    /*
     std::array<char, 1024> myArray2;
     Clear_Queue(socket, consoleQueue, io_context, m);
+    */
+    /*
+    std::string a = encryptStringWithPublicKey(publicKey, "AAA");
+    cout << a << endl<<"\n";
+    a = encryptStringWithPublicKey(publicKey, "AAA");
+    cout << a << endl << "\n";
+    a = encryptStringWithPublicKey(publicKey, "AAA");
+    cout << a << endl << "\n";
+    */
+    //cout << decryptHexWithPrivateKey(privateKey, a)<< "\n" << endl;
+
 
 
     // Write the JSON object to the file
@@ -451,7 +651,6 @@ int main() {
         // jsonData = json::parse(file);
     }
     else {
-      std::cout<< "JSON file does not exist" << endl;
         // File doesn't exist, generate a new JSON object
 
         jsonData["uid"] = nullptr;
@@ -647,14 +846,19 @@ int main() {
 					tokenize(tokens6, key, ",");
                     json newGroup;
                     //decrypts the aes key in tokens6[1] using the private key
-                    decryptAESKeyWithPrivateKey(privateKey, tokens6[1]);
+                    //newGroup["key"] = tokens6[1];
                     //delete globals.snk;
+                    //string decryptedKey = decryptHexWithPrivateKey(privateKey, tokens6[1]);
+                    //cout << "decrypted key: " << decryptedKey << endl;
+                    //cout << jsonData.dump(4) << endl;
+                    //newGroup["key"] = decryptedKey;
 
-                    newGroup["groupid"] = tokens6[0];
                     newGroup["key"] = tokens6[1];
+                    newGroup["groupid"] = tokens6[0];
                     newGroup["lastmesid"] = 0;
                     newGroup["messages"] = json::array();
                     jsonData["groups"].push_back(newGroup);
+                    cout << jsonData.dump(4) << endl;
    
 				}
             }
@@ -692,9 +896,10 @@ int main() {
     
     
     
-
-    //do_read(socket,myArray2);
-    //std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
+    std::array<char, 1024> myArray2;
+    do_read(socket,myArray2);
+    std::thread t2([&m, &consoleQueue]() {console_adaptor(consoleQueue, m); });
+    io_context.run();
     //std::thread t3(io_context_thread);
     
     //frame.Show(true);
