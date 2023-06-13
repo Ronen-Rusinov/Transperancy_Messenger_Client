@@ -213,12 +213,75 @@ void loadKeyPair(const std::string& privateKeyPath, const std::string& publicKey
 
 void do_read(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, std::array<char, 1024>& read_buffer )
 {
+    
+    read_buffer.fill(0);
     socket.async_read_some(boost::asio::buffer(read_buffer),
         [&socket,&read_buffer](const boost::system::error_code& error, size_t length) {
             if (!error) {
 
                 std::string recieved = std::string(read_buffer.data(), length);
                 std::cout << "Received: " << recieved << std::endl;
+
+                //parses recieved by linebreaks
+                std::vector<std::string> lines;
+                tokenize(lines,recieved, "\n");
+                
+                //REFERENCE:
+                //"CODE=250\nMESSAGE RECIEVED\n"+ gid_str + "\n" + to_string(UID) + ": " + mes_str + "\n"
+                //"CODE=251\nGROUP ADDITION\nGID=" + to_string(gid) + "\nKEY=" + symKeys[i] +"\n"
+                //"CODE=4XX\nERROR MESSAGE\n" + error_message + "\n"
+                json& jsonData = *globals.j;
+
+                if (lines.size() > 1) //Makes sure nothing is quite off
+                {
+                    //Checks for code
+                    std::vector<std::string> code;
+                    tokenize(code, lines[0], "=");
+                    if (code.size() > 1)
+                    {
+                        if (code[0] == "CODE")
+                        {
+							if (code[1] == "250") //Message recieved
+							{ 
+                                //finds the group in the json and appends the message
+                                for (auto& val : jsonData["groups"])
+                                {
+                                    if (val["groupid"] == stoi(lines[2]))
+                                    {
+                                        val["messages"].push_back(lines[3]);
+                                        break;
+                                    }
+
+                                }
+                                
+
+                            }
+                            if (code[1] == "251")
+                            {
+                                //creates a new group in the json and adds the key
+                                std::vector<std::string> result;
+                                tokenize(result, lines[2], "=");
+                                //creates a subtree json for the group
+                                json group;
+                                group["gid"] = result[1];
+                                result.clear();
+                                tokenize(result, lines[3], "=");
+                                group["key"] = result[1];
+                                group["lastmesid"] = 0;
+                                group["messages"] = json::array();
+                                jsonData["groups"].push_back(group);
+
+                            }
+                            else if (code[1][0] == '4')
+                            {
+
+                            }
+                        }
+                    }
+
+                }
+
+
                 do_read(socket,read_buffer);    
             }
         }
@@ -250,7 +313,7 @@ void do_write(boost::asio::ssl::stream<boost::asio::ip::tcp::socket>& socket, st
 
 void draw_GUI()
 {
-    system("cls");
+    //system("cls");
     json& jsonData = *globals.j;
     //cout << jsonData.dump(4) << endl;
 
@@ -390,9 +453,9 @@ void console_adaptor(queue<string> &que,mutex &m)
                     //Create a CREATEGR message
                     json& jsonData = *globals.j;
                     stringstream ss;
-                    ss << "CREATEGR UIDS=[";
+                    ss << "CREATEGR UIDS=[" << jsonData["uid"]<<",";
                     ss << input << "] KEYS=[0";
-                    for (int j = 0; j < result.size() - 1; j++)
+                    for (int j = 0; j < result.size(); j++)
                     {
                         ss << ",0";
                     }

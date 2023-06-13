@@ -3,9 +3,10 @@
         {
             "groupid": "17",
             "key": "AAA",
-            "lastmesid": 1,
+            "lastmesid": 2,
             "messages": [
-                "74: AAA"
+                "74: AAA",
+                "74: DAD"
             ]
         },
         {
