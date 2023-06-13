@@ -252,7 +252,9 @@ void draw_GUI()
 {
     system("cls");
     json& jsonData = *globals.j;
-    cout << jsonData.dump(4) << endl;
+    //cout << jsonData.dump(4) << endl;
+
+    std::cout << "\n-+=}>|-------------------------------------|<{=+-\n" << std::endl;
 
     std::cout << "" << std::endl;
     std::cout << "           |----------------------|" << std::endl;
@@ -273,15 +275,17 @@ void draw_GUI()
     //Iterates over all groups and prints the group id, and on lower lines their meseges
     for (auto& group : jsonData["groups"])
     {
-		std::cout << "|----------------|" << std::endl;
-		std::cout << "  Group ID:" << group["id"] << std::endl;
+		std::cout << "\n|----------------|" << std::endl;
+		std::cout << "  Group ID:" << group["groupid"] << std::endl;
         std::cout << "|----------------|" << std::endl;
 
         for (auto& message : group["messages"])
         {
-			std::cout << "    " << message["content"] << std::endl;
+			std::cout << "    " << message.get<string>() << std::endl;
 		}
 	}
+
+    std::cout << "\n-+=}>|-------------------------------------|<{=+-\n" << std::endl;
 
     switch (globals.state)
     {
@@ -318,9 +322,9 @@ void draw_GUI()
 
 void console_adaptor(queue<string> &que,mutex &m)
 {
-    cout << "YEAA HAW" << endl;
     while (1)
     {
+
         draw_GUI();
 
         // Read input from console
@@ -329,7 +333,7 @@ void console_adaptor(queue<string> &que,mutex &m)
 
         if (globals.state == 3)
         {
-            globals.state == 0;
+            globals.state = 0;
         }
 
         if (globals.state == 0)
@@ -350,10 +354,9 @@ void console_adaptor(queue<string> &que,mutex &m)
             {
                 globals.state = 3;
             }
-
-
+            draw_GUI();
         }
-        else if (globals.state == 1)
+        if (globals.state == 1)
         {
             string input;
             std::getline(std::cin, input);
@@ -381,6 +384,7 @@ void console_adaptor(queue<string> &que,mutex &m)
 				}
                 if (globals.state == 1)
                 {
+
                     //REFERENCE
                     // "^CREATEGR UIDS=\\[(?:\\d{1,10})(?:,\\d{1,10}){0,19}\\] KEYS=\\[(?:[0-9A-F]+)(?:,[0-9A-F]+)*\\]")
                     //Create a CREATEGR message
@@ -396,6 +400,7 @@ void console_adaptor(queue<string> &que,mutex &m)
 
                     string* message = new string();
                     *message = ss.str();
+                    cout << *message << endl;
                     //send the message
                     (*globals.m).lock();
                     (*globals.socket).async_write_some(boost::asio::buffer(*message),
@@ -410,7 +415,7 @@ void console_adaptor(queue<string> &que,mutex &m)
 
 
         }
-        else if (globals.state == 2)
+        if (globals.state == 2)
         {
             std::string input;
             std::getline(std::cin, input);
@@ -426,13 +431,15 @@ void console_adaptor(queue<string> &que,mutex &m)
                 //REFERENCE
                 //^POST GID=\\d{1,10} KEYID=\\d{1,5} MES=[0-9A-F]+\\]
                 //Create a POST message
+
                 json& jsonData = *globals.j;
                 stringstream ss;
                 ss << "POST GID=";
-                ss << result[0] << " KEYID=0 MES=[";
+                ss << result[0] << " KEYID=0 MES=";
                 ss << result[1] << "]";
                 string* message = new string();
                 *message = ss.str();
+                cout << *message << endl;
                 //send the message
 				(*globals.m).lock();
 				(*globals.socket).async_write_some(boost::asio::buffer(*message),
@@ -443,10 +450,10 @@ void console_adaptor(queue<string> &que,mutex &m)
                 globals.state = 0;
             }
 		}
-
-        else if (globals.state == 5)
+        if (globals.state == 5)
         {
             //sends the input to the server
+            std::getline(std::cin, input);
             string* message = new string();
             *message = input;
             //send the message
@@ -758,7 +765,7 @@ int main() {
         //if not, gets context for group 0 from mesid 0
         if (jsonData["groups"].size() == 0)
         {
-            ss << "2147483647,0\]";
+            ss << "2147483647,0]";
         }
         else
         {
@@ -786,7 +793,7 @@ int main() {
                 ss << groupidlastmesid;
 
             }
-            ss << "\]";
+            ss << "]";
         }
 
         //Send the GETCONTEXT request to the server
